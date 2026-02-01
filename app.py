@@ -1,9 +1,11 @@
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
+from webrtc_streamer import WebRtcStreamerState
 import tempfile
 import os
 from sarvamai import SarvamAI
 import base64
+import time
 
 SARVAM_API_KEY = st.secrets.get("SARVAM_API_KEY", "")
 client = SarvamAI(api_subscription_key=SARVAM_API_KEY)
@@ -149,6 +151,12 @@ st.markdown("""
         background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
         border-radius: 10px;
     }
+    
+    .recording-indicator {
+        color: #e74c3c;
+        font-weight: bold;
+        font-size: 1.1rem;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -160,69 +168,114 @@ st.markdown("""
 </header>
 """, unsafe_allow_html=True)
 
+# Initialize session state
+if "recording" not in st.session_state:
+    st.session_state.recording = False
+if "webrtc_ctx" not in st.session_state:
+    st.session_state.webrtc_ctx = None
+if "user_text" not in st.session_state:
+    st.session_state.user_text = ""
+if "agent_reply" not in st.session_state:
+    st.session_state.agent_reply = ""
+if "voice_audio" not in st.session_state:
+    st.session_state.voice_audio = b""
+
 # Main content
 col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # WebRTC Audio Recorder
-    st.subheader("🎤 Record Your Message")
+    # Recording Section
+    st.subheader("🎤 Start Speaking")
+    
     webrtc_ctx = webrtc_streamer(
-        key="snehal-voice-agent",
+        key="voice-agent",
         mode=WebRtcMode.SENDRECV,
         rtc_configuration=RTC_CONFIGURATION,
-        media_stream_constraints={"audio": True},
+        media_stream_constraints={"audio": True, "video": False},
         async_processing=True,
     )
     
-    if st.button("🎵 Process Audio", use_container_width=True):
-        if webrtc_ctx.state.playing:
-            st.warning("Please stop recording first")
-        elif webrtc_ctx.audio_processor:
-            try:
-                with st.spinner("⏳ Processing audio..."):
-                    # Get the recorded audio
-                    audio_frames = webrtc_ctx.audio_processor.get_frames()
-                    if audio_frames:
-                        # Convert audio frames to bytes
-                        audio_bytes = b"".join([frame.to_ndarray().tobytes() for frame in audio_frames])
-                        
-                        # Speech to text
-                        user_text = speech_to_text(audio_bytes)
-                        
-                        if user_text:
-                            st.markdown(f"""
-                            <div class="result-container">
-                                <div class="label-text">🗣️ You said:</div>
-                                <div class="user-text">{user_text}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                            with st.spinner("🤖 Agent is thinking..."):
-                                reply = ask_llm(user_text)
-
-                            if reply:
-                                st.markdown(f"""
-                                <div class="result-container">
-                                    <div class="label-text">🤖 Agent Response:</div>
-                                    <div class="agent-text">{reply}</div>
-                                </div>
-                                """, unsafe_allow_html=True)
-
-                                with st.spinner("🎵 Generating speech..."):
-                                    voice = text_to_speech(reply)
-
-                                if voice:
-                                    st.markdown('<div class="audio-player">', unsafe_allow_html=True)
-                                    st.audio(voice, format="audio/wav")
-                                    st.markdown('</div>', unsafe_allow_html=True)
+    # Control buttons
+    col_start, col_stop, col_process = st.columns(3)
+    
+    with col_start:
+        if st.button("▶️ Start", use_container_width=True):
+            st.session_state.recording = True
+            st.session_state.user_text = ""
+            st.session_state.agent_reply = ""
+            st.session_state.voice_audio = b""
+    
+    with col_stop:
+        if st.button("⏹️ Stop", use_container_width=True):
+            st.session_state.recording = False
+    
+    with col_process:
+        if st.button("🔄 Process", use_container_width=True):
+            if webrtc_ctx.audio_processor and webrtc_ctx.audio_processor.frames:
+                try:
+                    with st.spinner("⏳ Processing your voice..."):
+                        # Get audio frames
+                        audio_frames = webrtc_ctx.audio_processor.get_frames()
+                        if audio_frames:
+                            # Convert frames to bytes
+                            audio_bytes = b"".join([frame.to_ndarray().tobytes() for frame in audio_frames])
+                            
+                            # Speech to text
+                            user_text = speech_to_text(audio_bytes)
+                            
+                            if user_text:
+                                st.session_state.user_text = user_text
+                                
+                                # Ask LLM
+                                with st.spinner("🤖 Thinking..."):
+                                    reply = ask_llm(user_text)
+                                    st.session_state.agent_reply = reply
+                                
+                                # Generate speech
+                                if reply:
+                                    with st.spinner("🎵 Generating voice..."):
+                                        voice = text_to_speech(reply)
+                                        st.session_state.voice_audio = voice
+                                
+                                st.rerun()
+                            else:
+                                st.error("❌ Could not understand audio. Please try again.")
                         else:
-                            st.error("Could not transcribe audio. Please try again.")
-                    else:
-                        st.warning("No audio recorded. Please record something first.")
-            except Exception as e:
-                st.error(f"Error processing audio: {str(e)}")
+                            st.error("❌ No audio recorded. Please record something first.")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            else:
+                st.warning("⚠️ Please start recording first.")
+    
+    # Recording status
+    if st.session_state.recording:
+        st.markdown('<p class="recording-indicator">🔴 RECORDING...</p>', unsafe_allow_html=True)
+    
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # Results section
+    if st.session_state.user_text:
+        st.markdown(f"""
+        <div class="result-container">
+            <div class="label-text">🗣️ You said:</div>
+            <div class="user-text">{st.session_state.user_text}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    if st.session_state.agent_reply:
+        st.markdown(f"""
+        <div class="result-container">
+            <div class="label-text">🤖 Agent says:</div>
+            <div class="agent-text">{st.session_state.agent_reply}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    if st.session_state.voice_audio:
+        st.markdown('<div class="audio-player">', unsafe_allow_html=True)
+        st.audio(st.session_state.voice_audio, format="audio/wav")
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # Footer
 st.markdown("""
