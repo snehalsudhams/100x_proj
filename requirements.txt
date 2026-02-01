@@ -1,0 +1,6 @@
+streamlit
+sounddevice
+scipy
+sarvamai
+requests
+numpy
