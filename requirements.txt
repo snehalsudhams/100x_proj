@@ -1,6 +1,7 @@
 streamlit
-sounddevice
-scipy
+streamlit-webrtc
 sarvamai
 requests
 numpy
+pydub
+
