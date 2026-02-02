@@ -6,7 +6,8 @@ try:
 except Exception:
     sd = None
     SOUNDDEVICE_AVAILABLE = False
-import scipy.io.wavfile as wav
+import wave
+import numpy as np
 import os
 from sarvamai import SarvamAI
 
@@ -59,6 +60,26 @@ def record_audio(seconds=5, fs=44100):
     audio = sd.rec(int(seconds * fs), samplerate=fs, channels=1)
     sd.wait()
     return fs, audio
+
+
+def write_wav_file(path, fs, audio):
+    # audio: numpy array (samples, channels) or (samples,)
+    arr = np.asarray(audio)
+    # if stereo or single-channel with shape (n,1), flatten to (n,)
+    if arr.ndim > 1 and arr.shape[1] == 1:
+        arr = arr.reshape(-1)
+    # sounddevice often returns float32 in -1..1; convert to int16
+    if np.issubdtype(arr.dtype, np.floating):
+        arr_int16 = (arr * 32767).astype(np.int16)
+    else:
+        arr_int16 = arr.astype(np.int16)
+
+    with wave.open(path, 'wb') as wf:
+        channels = 1 if arr_int16.ndim == 1 else arr_int16.shape[1]
+        wf.setnchannels(channels)
+        wf.setsampwidth(2)  # 2 bytes for int16
+        wf.setframerate(fs)
+        wf.writeframes(arr_int16.tobytes())
 
 # ================= SPEECH TO TEXT =================
 def speech_to_text(audio_path):
