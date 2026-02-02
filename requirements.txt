@@ -4,4 +4,5 @@ sarvamai
 requests
 numpy
 pydub
+audio-recorder-streamlit
 
