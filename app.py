@@ -1,6 +1,11 @@
 import streamlit as st
 import tempfile
-import sounddevice as sd
+try:
+    import sounddevice as sd
+    SOUNDDEVICE_AVAILABLE = True
+except Exception:
+    sd = None
+    SOUNDDEVICE_AVAILABLE = False
 import scipy.io.wavfile as wav
 import os
 from sarvamai import SarvamAI
@@ -48,6 +53,8 @@ Hum pe tho haii nooo..!
 
 # ================= AUDIO =================
 def record_audio(seconds=5, fs=44100):
+    if not SOUNDDEVICE_AVAILABLE:
+        raise RuntimeError("Local sounddevice recording is not available in this environment.")
     st.info("🎙️ Recording...")
     audio = sd.rec(int(seconds * fs), samplerate=fs, channels=1)
     sd.wait()
@@ -219,15 +226,26 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Speak Button
-    if st.button("🎤 Press to Speak", use_container_width=True):
-        with st.spinner("🔴 Listening..."):
-            fs, audio = record_audio(seconds=5)
+    # Speak Button or Upload fallback
+    if SOUNDDEVICE_AVAILABLE:
+        if st.button("🎤 Press to Speak", use_container_width=True):
+            with st.spinner("🔴 Listening..."):
+                fs, audio = record_audio(seconds=5)
 
-        with st.spinner("⏳ Processing audio..."):
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
-                wav.write(temp.name, fs, audio)
-                user_text = speech_to_text(temp.name)
+            with st.spinner("⏳ Processing audio..."):
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
+                    wav.write(temp.name, fs, audio)
+                    user_text = speech_to_text(temp.name)
+    else:
+        st.warning("Local microphone recording not available in this environment. Upload a WAV/MP3 file instead.")
+        uploaded = st.file_uploader("Upload audio file (wav/mp3/m4a/ogg)", type=['wav','mp3','m4a','ogg'])
+        user_text = ""
+        if uploaded is not None:
+            with st.spinner("⏳ Processing uploaded audio..."):
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp:
+                    temp.write(uploaded.read())
+                    temp.flush()
+                    user_text = speech_to_text(temp.name)
 
         # User Text Result
         if user_text:
